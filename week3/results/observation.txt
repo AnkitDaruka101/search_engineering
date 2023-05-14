@@ -1,0 +1,257 @@
+pre-setup
+---------
+** Set Env
+$ pyenv activate search_eng
+
+** Tab1
+$ docker-compose -f docker/docker-compose-w3.yml up
+https://5601-<$GITPOD_URL>/app/opensearch_dashboards_overview#/
+
+** Tab2
+$ ./docker-grafana/install-plugin.sh
+$ docker-compose -f docker-grafana/monitoring.yml up
+http://3000-<$GITPOD_URL>/d/opensearch/opensearch-prometheus
+
+export BBUY_DATA=/workspace/datasets/product_data/products
+export BBUY_QUERIES=/workspace/datasets
+
+Level 1: Cluster Manager and Leader Election
+---------------------------------------------
+$ docker ps
+Results: 
+CONTAINER ID   IMAGE                                           COMMAND                  CREATED          STATUS                    PORTS                                                                                                      NAMES
+7597537f7929   grafana/grafana:9.4.7                           "/run.sh"                10 minutes ago   Up 10 minutes             0.0.0.0:3000->3000/tcp, :::3000->3000/tcp                                                                  grafana
+65663dd860be   prom/prometheus:v2.43.0                         "/bin/prometheus --c…"   10 minutes ago   Up 10 minutes             0.0.0.0:9090->9090/tcp, :::9090->9090/tcp                                                                  prometheus
+65b7400d97fd   gcr.io/cadvisor/cadvisor:v0.47.1                "/usr/bin/cadvisor -…"   10 minutes ago   Up 10 minutes (healthy)   0.0.0.0:8080->8080/tcp, :::8080->8080/tcp                                                                  cadvisor
+25bb76db061a   opensearchproject/opensearch:2.6.0              "./opensearch-docker…"   13 minutes ago   Up 11 minutes             9200/tcp, 9300/tcp, 9600/tcp, 9650/tcp                                                                     opensearch-node3
+06ec315a7883   opensearchproject/opensearch:2.6.0              "./opensearch-docker…"   13 minutes ago   Up 11 minutes             9200/tcp, 9300/tcp, 9600/tcp, 9650/tcp                                                                     opensearch-node2
+84e8c62ae9e1   opensearchproject/opensearch:2.6.0              "./opensearch-docker…"   13 minutes ago   Up 10 minutes             0.0.0.0:9200->9200/tcp, :::9200->9200/tcp, 9300/tcp, 0.0.0.0:9600->9600/tcp, :::9600->9600/tcp, 9650/tcp   opensearch-node1
+62218d9144ae   opensearchproject/opensearch-dashboards:2.6.0   "./opensearch-dashbo…"   13 minutes ago   Up 13 minutes             0.0.0.0:5601->5601/tcp, :::5601->5601/tcp                                                                  opensearch-dashboards
+
+$ curl -XGET -k 'https://admin:admin@localhost:9200/_cat/nodes?v'
+Results:
+ip         heap.percent ram.percent cpu load_1m load_5m load_15m node.role node.roles                                        cluster_manager name
+172.18.0.3           38          57   8    0.92    2.40     2.12 dimr      cluster_manager,data,ingest,remote_cluster_client -               opensearch-node2
+172.18.0.5           35          57   7    0.92    2.40     2.12 dimr      cluster_manager,data,ingest,remote_cluster_client -               opensearch-node1
+172.18.0.4           60          57   8    0.92    2.40     2.12 dimr      cluster_manager,data,ingest,remote_cluster_client *               opensearch-node3
+
+$ docker stop opensearch-node3
+Results: opensearch-node3
+
+$ curl -XGET -k 'https://admin:admin@localhost:9200/_cat/nodes?v'
+Results: 
+ip         heap.percent ram.percent cpu load_1m load_5m load_15m node.role node.roles                                        cluster_manager name
+172.18.0.3           53          53   5    2.20    2.14     2.04 dimr      cluster_manager,data,ingest,remote_cluster_client -               opensearch-node2
+172.18.0.5           51          53   5    2.20    2.14     2.04 dimr      cluster_manager,data,ingest,remote_cluster_client *               opensearch-node1
+
+$ docker logs opensearch-node1
+Results Contains:
+[2023-05-14T03:44:37,885][INFO ][o.o.c.c.FollowersChecker ] [opensearch-node1] FollowerChecker{discoveryNode={opensearch-node3}{sSqgXV-KTfiHnAgiDR7-Ow}{vWmWKmbyRcGp4B7CuxrqdQ}{172.18.0.4}{172.18.0.4:9300}{dimr}{shard_indexing_pressure_enabled=true}, failureCountSinceLastSuccess=1, [cluster.fault_detection.follower_check.retry_count]=3} disconnected
+org.opensearch.transport.NodeNotConnectedException: [opensearch-node3][172.18.0.4:9300] Node not connected
+        at org.opensearch.transport.ClusterConnectionManager.getConnection(ClusterConnectionManager.java:206) ~[opensearch-2.6.0.jar:2.6.0]
+        at org.opensearch.transport.TransportService.getConnection(TransportService.java:836) ~[opensearch-2.6.0.jar:2.6.0]
+        at org.opensearch.transport.TransportService.sendRequest(TransportService.java:752) [opensearch-2.6.0.jar:2.6.0]
+        at org.opensearch.cluster.coordination.FollowersChecker$FollowerChecker.handleWakeUp(FollowersChecker.java:348) [opensearch-2.6.0.jar:2.6.0]
+        at org.opensearch.cluster.coordination.FollowersChecker$FollowerChecker.start(FollowersChecker.java:336) [opensearch-2.6.0.jar:2.6.0]
+        at org.opensearch.cluster.coordination.FollowersChecker.lambda$setCurrentNodes$2(FollowersChecker.java:178) [opensearch-2.6.0.jar:2.6.0]
+        at java.util.stream.ReferencePipeline$3$1.accept(ReferencePipeline.java:197) [?:?]
+        at java.util.Iterator.forEachRemaining(Iterator.java:133) [?:?]
+        at java.util.Spliterators$IteratorSpliterator.forEachRemaining(Spliterators.java:1845) [?:?]
+        at java.util.stream.AbstractPipeline.copyInto(AbstractPipeline.java:509) [?:?]
+        at java.util.stream.AbstractPipeline.wrapAndCopyInto(AbstractPipeline.java:499) [?:?]
+        at java.util.stream.StreamSpliterators$WrappingSpliterator.forEachRemaining(StreamSpliterators.java:310) [?:?]
+        at java.util.stream.Streams$ConcatSpliterator.forEachRemaining(Streams.java:734) [?:?]
+        at java.util.stream.ReferencePipeline$Head.forEach(ReferencePipeline.java:762) [?:?]
+        at org.opensearch.cluster.coordination.FollowersChecker.setCurrentNodes(FollowersChecker.java:171) [opensearch-2.6.0.jar:2.6.0]
+        at org.opensearch.cluster.coordination.Coordinator.publish(Coordinator.java:1308) [opensearch-2.6.0.jar:2.6.0]
+        at org.opensearch.cluster.service.MasterService.publish(MasterService.java:349) [opensearch-2.6.0.jar:2.6.0]
+        at org.opensearch.cluster.service.MasterService.runTasks(MasterService.java:331) [opensearch-2.6.0.jar:2.6.0]
+        at org.opensearch.cluster.service.MasterService$Batcher.run(MasterService.java:206) [opensearch-2.6.0.jar:2.6.0]
+        at org.opensearch.cluster.service.TaskBatcher.runIfNotProcessed(TaskBatcher.java:190) [opensearch-2.6.0.jar:2.6.0]
+        at org.opensearch.cluster.service.TaskBatcher$BatchedTask.run(TaskBatcher.java:228) [opensearch-2.6.0.jar:2.6.0]
+        at org.opensearch.common.util.concurrent.ThreadContext$ContextPreservingRunnable.run(ThreadContext.java:747) [opensearch-2.6.0.jar:2.6.0]
+        at org.opensearch.common.util.concurrent.PrioritizedOpenSearchThreadPoolExecutor$TieBreakingPrioritizedRunnable.runAndClean(PrioritizedOpenSearchThreadPoolExecutor.java:282) [opensearch-2.6.0.jar:2.6.0]
+        at org.opensearch.common.util.concurrent.PrioritizedOpenSearchThreadPoolExecutor$TieBreakingPrioritizedRunnable.run(PrioritizedOpenSearchThreadPoolExecutor.java:245) [opensearch-2.6.0.jar:2.6.0]
+        at java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1136) [?:?]
+        at java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:635) [?:?]
+        at java.lang.Thread.run(Thread.java:833) [?:?]
+[2023-05-14T03:44:37,886][INFO ][o.o.c.c.FollowersChecker ] [opensearch-node1] FollowerChecker{discoveryNode={opensearch-node3}{sSqgXV-KTfiHnAgiDR7-Ow}{vWmWKmbyRcGp4B7CuxrqdQ}{172.18.0.4}{172.18.0.4:9300}{dimr}{shard_indexing_pressure_enabled=true}, failureCountSinceLastSuccess=1, [cluster.fault_detection.follower_check.retry_count]=3} marking node as faulty
+
+$ docker start opensearch-node3
+Results: opensearch-node3
+
+$ curl -XGET -k 'https://admin:admin@localhost:9200/_cat/nodes?v'
+Results: 
+ip         heap.percent ram.percent cpu load_1m load_5m load_15m node.role node.roles                                        cluster_manager name
+172.18.0.3           45          54   5    0.54    0.81     1.36 dimr      cluster_manager,data,ingest,remote_cluster_client -               opensearch-node2
+172.18.0.5           44          54   5    0.54    0.81     1.36 dimr      cluster_manager,data,ingest,remote_cluster_client *               opensearch-node1
+172.18.0.4           24          54   4    0.54    0.81     1.36 dimr      cluster_manager,data,ingest,remote_cluster_client -               opensearch-node3
+
+Level 2.1: Creating a Sharded Index with 3 primary shards 2 replica shards
+--------------------------------------------------------------------------
+$ curl -k -X PUT -u admin:admin "https://localhost:9200/bbuy_products" -H 'Content-Type: application/json' -d @/workspace/search_engineering/week3/bbuy_products_3s2r.json
+Results: {"acknowledged":true,"shards_acknowledged":true,"index":"bbuy_products"}
+
+$ curl -XGET -k 'https://admin:admin@localhost:9200/_cat/shards/bbuy_products?v&s=shard,prirep'
+Results: 
+index         shard prirep state   docs store ip         node
+bbuy_products 0     p      STARTED    0  208b 172.18.0.3 opensearch-node2
+bbuy_products 0     r      STARTED    0  208b 172.18.0.4 opensearch-node3
+bbuy_products 0     r      STARTED    0  208b 172.18.0.5 opensearch-node1
+bbuy_products 1     p      STARTED    0  208b 172.18.0.4 opensearch-node3
+bbuy_products 1     r      STARTED    0  208b 172.18.0.3 opensearch-node2
+bbuy_products 1     r      STARTED    0  208b 172.18.0.5 opensearch-node1
+bbuy_products 2     p      STARTED    0  208b 172.18.0.5 opensearch-node1
+bbuy_products 2     r      STARTED    0  208b 172.18.0.3 opensearch-node2
+bbuy_products 2     r      STARTED    0  208b 172.18.0.4 opensearch-node3
+
+$ python index.py -s $BBUY_DATA -w 8 -b 500
+Results: 
+INFO:Indexing /workspace/datasets/product_data/products to bbuy_products with 8 workers, refresh_interval of -1 to host localhost with a maximum number of docs sent per file per worker of 200000 and 500 per batch.
+INFO:Done. 1275077 were indexed in 19.12915560536688 minutes.  Total accumulated time spent in `bulk` indexing: 54.36760902677294 minutes
+
+$ curl -XGET -k 'https://admin:admin@localhost:9200/_cat/shards/bbuy_products?v&s=shard,prirep'
+Results:
+index         shard prirep state     docs   store ip         node
+bbuy_products 0     p      STARTED 410857 579.9mb 172.18.0.3 opensearch-node2
+bbuy_products 0     r      STARTED 420462 621.8mb 172.18.0.4 opensearch-node3
+bbuy_products 0     r      STARTED 420473   476mb 172.18.0.5 opensearch-node1
+bbuy_products 1     p      STARTED 404766 472.6mb 172.18.0.4 opensearch-node3
+bbuy_products 1     r      STARTED 404646 450.7mb 172.18.0.3 opensearch-node2
+bbuy_products 1     r      STARTED 414135 836.5mb 172.18.0.5 opensearch-node1
+bbuy_products 2     p      STARTED 405124 624.7mb 172.18.0.5 opensearch-node1
+bbuy_products 2     r      STARTED 421209 476.1mb 172.18.0.3 opensearch-node2
+bbuy_products 2     r      STARTED 412801 617.2mb 172.18.0.4 opensearch-node3
+
+Level 2.2: Creating a Sharded Index with 3 primary shards 0 replica shards
+--------------------------------------------------------------------------
+$ curl -k -X DELETE -u admin:admin "https://localhost:9200/bbuy_products"
+Results: {"acknowledged":true}
+
+$ curl -k -X PUT -u admin:admin "https://localhost:9200/bbuy_products" -H 'Content-Type: application/json' -d @/workspace/search_engineering/week3/bbuy_products_3s0r.json
+Results: {"acknowledged":true,"shards_acknowledged":true,"index":"bbuy_products"}
+
+$ curl -XGET -k 'https://admin:admin@localhost:9200/_cat/shards/bbuy_products?v&s=shard,prirep'
+Results:
+index         shard prirep state   docs store ip         node
+bbuy_products 0     p      STARTED    0  208b 172.18.0.3 opensearch-node2
+bbuy_products 1     p      STARTED    0  208b 172.18.0.4 opensearch-node3
+bbuy_products 2     p      STARTED    0  208b 172.18.0.5 opensearch-node1
+
+$ python index.py -s $BBUY_DATA -w 8 -b 500
+Results:
+INFO:Indexing /workspace/datasets/product_data/products to bbuy_products with 8 workers, refresh_interval of -1 to host localhost with a maximum number of docs sent per file per worker of 200000 and 500 per batch.
+INFO:Done. 1275077 were indexed in 10.506455415850118 minutes.  Total accumulated time spent in `bulk` indexing: 19.15021333891491 minutes
+
+$ curl -XGET -k 'https://admin:admin@localhost:9200/_cat/shards/bbuy_products?v&s=shard,prirep'
+Results:
+index         shard prirep state     docs   store ip         node
+bbuy_products 0     p      STARTED 419562 790.4mb 172.18.0.3 opensearch-node2
+bbuy_products 1     p      STARTED 420348 788.6mb 172.18.0.4 opensearch-node3
+bbuy_products 2     p      STARTED 420022 526.3mb 172.18.0.5 opensearch-node1
+
+Level 2.3: Dynamically add replicas
+-----------------------------------
+$ curl -k -XPUT -u admin:admin 'https://localhost:9200/bbuy_products/_settings' -H 'Content-Type: application/json' -d '{"index": {"number_of_replicas": 2}}'
+Results: {"acknowledged":true}
+
+$ curl -XGET -k 'https://admin:admin@localhost:9200/_cat/shards/bbuy_products?v&s=shard,prirep'
+Results: 
+index         shard prirep state          docs   store ip         node
+bbuy_products 0     p      STARTED      423938   420mb 172.18.0.3 opensearch-node2
+bbuy_products 0     r      INITIALIZING                172.18.0.4 opensearch-node3
+bbuy_products 0     r      INITIALIZING                172.18.0.5 opensearch-node1
+bbuy_products 1     p      STARTED      425833 420.6mb 172.18.0.4 opensearch-node3
+bbuy_products 1     r      INITIALIZING                172.18.0.3 opensearch-node2
+bbuy_products 1     r      INITIALIZING                172.18.0.5 opensearch-node1
+bbuy_products 2     p      STARTED      425306 442.8mb 172.18.0.5 opensearch-node1
+bbuy_products 2     r      INITIALIZING                172.18.0.3 opensearch-node2
+bbuy_products 2     r      INITIALIZING                172.18.0.4 opensearch-node3
+
+// Runing above command again
+$ curl -XGET -k 'https://admin:admin@localhost:9200/_cat/shards/bbuy_products?v&s=shard,prirep'
+Results: 
+index         shard prirep state     docs   store ip         node
+bbuy_products 0     p      STARTED 423938   420mb 172.18.0.3 opensearch-node2
+bbuy_products 0     r      STARTED 423938   420mb 172.18.0.4 opensearch-node3
+bbuy_products 0     r      STARTED 423938   420mb 172.18.0.5 opensearch-node1
+bbuy_products 1     p      STARTED 425833 420.6mb 172.18.0.4 opensearch-node3
+bbuy_products 1     r      STARTED 425833 420.6mb 172.18.0.3 opensearch-node2
+bbuy_products 1     r      STARTED 425833 420.6mb 172.18.0.5 opensearch-node1
+bbuy_products 2     p      STARTED 425306 442.8mb 172.18.0.5 opensearch-node1
+bbuy_products 2     r      STARTED 425306 442.8mb 172.18.0.3 opensearch-node2
+bbuy_products 2     r      STARTED 425306 442.8mb 172.18.0.4 opensearch-node3
+
+Level 3: Query Performance with Replica Shards
+----------------------------------------------
+$ (search_eng) gitpod /workspace/search_engineering/week3 (main) $ python ./query.py -q /workspace/search_engineering/train.csv -w 4 -m 25000
+INFO:Loading query file from /workspace/search_engineering/train.csv and using seed 42 for worker: 0
+INFO:Loading query file from /workspace/search_engineering/train.csv and using seed 168 for worker: 3
+INFO:Loading query file from /workspace/search_engineering/train.csv and using seed 84 for worker: 1
+INFO:Loading query file from /workspace/search_engineering/train.csv and using seed 126 for worker: 2
+INFO:WN: 0: Running queries, checking in every 1000 queries:
+INFO:WN: 1: Running queries, checking in every 1000 queries:
+INFO:WN: 3: Running queries, checking in every 1000 queries:
+INFO:WN: 2: Running queries, checking in every 1000 queries:
+INFO:WN: 2: Query: flatout has 10 hits.
+INFO:WN: 2: First result: {'_index': 'bbuy_products', '_id': '7061948', '_score': 0.09364867, '_source': {'sku': ['7061948'], 'productId': ['1108125394131'], 'name': ['FlatOut - Xbox'], 'type': ['Game'], 'shortDescription': ['Keep your foot to the floorboard'], 'startDate': ['2005-02-16'], 'active': ['false'], 'regularPrice': ['1.99'], 'salePrice':...........
+....
+....
+^C
+/workspace/search_engineering/week3/./query.py:242: DeprecationWarning: The 'warn' method is deprecated, use 'warning' instead
+  logger.warn(f'WN: {worker_num}: Failed to process query: {query}')
+WARNING:WN: 0: Failed to process query: Kodak digital camera
+WARNING:WN: 1: Failed to process query: network card
+/workspace/search_engineering/week3/./query.py:242: DeprecationWarning: The 'warn' method is deprecated, use 'warning' instead
+  logger.warn(f'WN: {worker_num}: Failed to process query: {query}')
+WARNING:WN: 3: Failed to process query: verizon car charger
+WARNING:WN: 2: Failed to process query: Receivers Stereo
+
+Caught SIGINT. Shutting down workers...
+
+INFO:WN: 0: Stopped early.
+INFO:WN: 2: Stopped early.
+INFO:WN: 3: Stopped early.
+INFO:WN: 1: Stopped early.
+INFO:Query worker finished in time: 11.713995196216274
+INFO:Query worker finished in time: 11.71338182494995
+INFO:Query worker finished in time: 11.71327482444952
+INFO:Query worker finished in time: 11.714837132300211
+************* System was able to achieve about 140 queries/second from Grafana Metrices (attached image)
+
+Level 4: Re-Sharding
+--------------------
+$ curl -XGET -k 'https://admin:admin@localhost:9200/_cat/shards/bbuy_products?v&s=shard,prirep'
+Results:
+index         shard prirep state     docs   store ip         node
+bbuy_products 0     p      STARTED 423938   420mb 172.18.0.3 opensearch-node2
+bbuy_products 0     r      STARTED 423938   420mb 172.18.0.4 opensearch-node3
+bbuy_products 0     r      STARTED 423938   420mb 172.18.0.5 opensearch-node1
+bbuy_products 1     p      STARTED 425833 420.6mb 172.18.0.4 opensearch-node3
+bbuy_products 1     r      STARTED 425833 420.6mb 172.18.0.3 opensearch-node2
+bbuy_products 1     r      STARTED 425833 420.6mb 172.18.0.5 opensearch-node1
+bbuy_products 2     p      STARTED 425306 442.8mb 172.18.0.5 opensearch-node1
+bbuy_products 2     r      STARTED 425306 442.8mb 172.18.0.3 opensearch-node2
+bbuy_products 2     r      STARTED 425306 442.8mb 172.18.0.4 opensearch-node3
+
+$ curl -k -XPUT -u admin:admin 'https://localhost:9200/bbuy_products/_settings' -H 'Content-Type: application/json' -d '{"index.blocks.write": true}'
+Results: {"acknowledged":true}
+
+$ curl -k -X POST -u admin:admin "https://localhost:9200/bbuy_products/_shrink/bbuy_products_1shard" -H 'Content-Type: application/json' -d '{"settings": {"index.number_of_replicas": 2, "index.number_of_shards": 1}}'
+Results: {"acknowledged":true,"shards_acknowledged":true,"index":"bbuy_products_1shard"}
+
+$ curl -XGET -k 'https://admin:admin@localhost:9200/_cat/shards/bbuy_products_1shard?v&s=shard,prirep'
+Results: 
+index                shard prirep state           docs store ip         node
+bbuy_products_1shard 0     p      STARTED      1275077 1.4gb 172.18.0.3 opensearch-node2
+bbuy_products_1shard 0     r      INITIALIZING               172.18.0.4 opensearch-node3
+bbuy_products_1shard 0     r      INITIALIZING               172.18.0.5 opensearch-node1
+
+// Runing above command again
+$ curl -XGET -k 'https://admin:admin@localhost:9200/_cat/shards/bbuy_products_1shard?v&s=shard,prirep'
+Results: 
+index                shard prirep state      docs store ip         node
+bbuy_products_1shard 0     p      STARTED 1275077 1.6gb 172.18.0.3 opensearch-node2
+bbuy_products_1shard 0     r      STARTED 1275077 1.2gb 172.18.0.4 opensearch-node3
+bbuy_products_1shard 0     r      STARTED 1275077 1.2gb 172.18.0.5 opensearch-node1
+
